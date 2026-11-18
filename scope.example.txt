@@ -1,0 +1,9 @@
+# WarpZone scope file - one host per line, # starts a comment.
+# A bare host covers that host AND all of its subdomains.
+# "*.target.com" behaves the same as "target.com".
+#
+# ONLY put hosts you are AUTHORIZED to test here.
+
+# target.com
+# api.target.com
+# staging.target.com
