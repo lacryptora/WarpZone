@@ -20,7 +20,7 @@ secrets, exposed source maps and DOM-XSS leads.
 | World | Name | What happens |
 | --- | --- | --- |
 | **1-1** |  WARP PIPES | Collects in-scope JS via **gau / waymore / katana / hakrawler** bridges + a built-in spider; liveness-checked with **httpx** or threaded GETs |
-| **1-2** |  COIN HEAVEN | Downloads every JS file, **prettifies** it (js-beautifier → binary → built-in fallback), then mines **endpoints**: absolute URLs, API paths, template literals, axios/fetch strings — normalizes every find into a **real, openable URL**, categorizes + scores it, extracts param names |
+| **1-2** |  COIN HEAVEN | Downloads every JS file, **prettifies** it (js-beautifier → binary → built-in fallback), then mines **endpoints**: absolute URLs, API paths, template literals, axios/fetch strings - normalizes every find into a **real, openable URL**, categorizes + scores it, extracts param names |
 | **1-3** |  SECRET VAULTS | 35+ pattern **secrets DB** (AWS, Google, GitHub, Slack, Stripe, Firebase, Telegram, private keys, JWTs…), generic literal scanner, **high-entropy blob finder**; finds **exposed `.map` source maps** (both `sourceMappingURL` comments and naive `.map` guesses) and **reconstructs the original source tree** |
 | **1-4** |  BOWSER'S CASTLE | **DOM-XSS taint engine**: sources (location.hash, postMessage, localStorage…) → sinks (innerHTML, eval, document.write, location=…) with line numbers, taint level (high/medium/low), sanitizer detection and a test recipe per lead. Then the **XSS arena**: reflection probing (canary → metachar probe → context-fitted payloads) with a **dalfox bridge** |
 | **1-5** |  REPORT CASTLE | Writes `report_warpzone.md` + `report_warpzone.html` + machine-readable `findings.json`, plus per-artifact files |
@@ -39,7 +39,7 @@ docker build -t warpzone . && docker run --rm warpzone --demo
 ```
 
 **Requirements:** Python 3.9+, `requests`. `rich` (game HUD) and
-`jsbeautifier` (prettifier) are optional — WarpZone has plain-output and
+`jsbeautifier` (prettifier) are optional - WarpZone has plain-output and
 built-in-beautifier fallbacks, so it runs anywhere.
 
 ##  Quickstart
@@ -120,30 +120,30 @@ WarpZone is stronger with friends installed (all optional):
 | [jsluice](https://github.com/BishopFox/jsluice) | deeper URL extraction (planned hook) | `go install github.com/BishopFox/jsluice/cmd/jsluice@latest` |
 | [dalfox](https://github.com/hahwul/dalfox) | XSS confirmation | `go install github.com/hahwul/dalfox/v2@latest` |
 
-No bridges installed? Everything still works — the built-in spider, threaded
+No bridges installed? Everything still works - the built-in spider, threaded
 liveness checks and the regex extraction engine are always available.
 
 ##  The XSS arsenal
 
-1. **DOM-XSS taint engine** — regex dataflow over prettified JS: every sink
+1. **DOM-XSS taint engine** : regex dataflow over prettified JS: every sink
    gets a line number and a taint level (same-line source = `high`, nearby =
    `medium`, file-level = `low`). Sanitizer presence (DOMPurify, escapeHTML,
    `textContent`…) downgrades confidence with a note. Every lead ships a
    **recipe**: what to inject and how to reach it.
-2. **Payload database** — 15 families: basic, event handlers, tag/script/attr
+2. **Payload database** : 15 families: basic, event handlers, tag/script/attr
    breakers, JS string/code contexts, `javascript:` URLs, HTML comment/CSS
    contexts, DOM-hash payloads, polyglots, filter probes (case tricks,
    encodings, nesting), and blind/OOB templates you point at **your own**
    callback host (`YOUR-OAST-HOST`).
-3. **Context detection** — the probe finds *where* your canary landed
+3. **Context detection**: the probe finds *where* your canary landed
    (HTML body, attribute double/single-quoted, tag name, `<script>` string
-   vs code, comment, CSS) and *which metacharacters survive* — then fires
+   vs code, comment, CSS) and *which metacharacters survive* - then fires
    only context-fitted payloads.
-4. **Reflection verdicts** — `REFLECTED_UNFILTERED` (whole payload echoed —
-   browser-verify now), `REFLECTED_FILTERED` (chars stripped — try polyglots),
+4. **Reflection verdicts** : `REFLECTED_UNFILTERED` (whole payload echoed -
+   browser-verify now), `REFLECTED_FILTERED` (chars stripped - try polyglots),
    `REFLECTED` (echo only). Reflection ≠ execution: **always confirm in a
    browser** before reporting.
-5. **dalfox bridge** — hands the juicy param'd URLs to dalfox when installed.
+5. **dalfox bridge** : hands the juicy param'd URLs to dalfox when installed.
 
 All payloads are benign `alert()` markers for authorized testing only.
 
@@ -157,7 +157,7 @@ All payloads are benign `alert()` markers for authorized testing only.
 | `params.txt` | param names worth reflection testing |
 | `secrets.json` | secret leads with validation hints |
 | `dom_xss_leads.json` | taint leads with line numbers + recipes |
-| `prettified/` | beautified JS — **read these** |
+| `prettified/` | beautified JS - **read these** |
 | `raw_js/` | the original files as served |
 | `sourcemaps/` | exposed `.map` files + restored original source tree |
 
@@ -171,5 +171,4 @@ jsluice, dalfox, js-beautifier, rich.
 
 ## License
 
-MIT - see [LICENSE](LICENSE). Use responsibly and only against targets you
-are authorized to test.
+MIT [LICENSE](LICENSE). 
