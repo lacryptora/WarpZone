@@ -13,9 +13,6 @@
 Every JS file is a warp pipe: jump in and come out with hidden endpoints,
 secrets, exposed source maps and DOM-XSS leads.
 
-
-![HTML report preview](docs/report_preview.png)
-
 ---
 
 ##  What it does (the 5 worlds)
