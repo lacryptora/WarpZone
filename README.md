@@ -13,10 +13,6 @@
 Every JS file is a warp pipe: jump in and come out with hidden endpoints,
 secrets, exposed source maps and DOM-XSS leads.
 
-> ⚠️ **AUTHORIZED TARGETS ONLY.** WarpZone enforces a scope file on every
-> request and refuses out-of-scope hosts. Secrets found are leads to
-> **validate and report — never use**. Reflections are leads to **confirm in
-> a browser — never assume**.
 
 ![HTML report preview](docs/report_preview.png)
 
