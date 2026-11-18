@@ -171,5 +171,5 @@ jsluice, dalfox, js-beautifier, rich.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Use responsibly and only against targets you
+MIT - see [LICENSE](LICENSE). Use responsibly and only against targets you
 are authorized to test.
