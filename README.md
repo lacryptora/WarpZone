@@ -11,11 +11,9 @@
 
 A JavaScript recon and XSS toolkit for bug hunters. Every JS file is a warp
 pipe: jump in and come out with hidden endpoints, secrets, exposed source maps,
-DOM-XSS leads, and XSS that WarpZone can confirm in a real browser.
+DOM-XSS leads.
 
-AUTHORIZED TARGETS ONLY. WarpZone checks a scope file before every request and
-refuses hosts that are out of scope. Secrets it finds are leads to validate and
-report, never to use.
+
 
 ## What it does
 
@@ -198,15 +196,4 @@ All payloads are harmless `alert()` markers for authorized testing only.
 | `raw_js/` | original JS as served |
 | `sourcemaps/` | exposed `.map` files and restored source |
 
-Keep your results private. Do not commit the output directory or paste
-unredacted secrets anywhere.
 
-## Credits
-
-Made by Shaimaa Khattab. Built on gau, waymore, katana, hakrawler, httpx,
-dalfox, playwright, jsbeautifier, and rich.
-
-## License
-
-MIT, see [LICENSE](LICENSE). Use responsibly and only against targets you are
-authorized to test.
