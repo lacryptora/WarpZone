@@ -20,7 +20,7 @@ ABS_URL_RE = re.compile(
     r"""["'`]((?:https?:)?//[\w.-]+\.[a-zA-Z]{2,}(?:/[^\s"'`<>\\)]*)?)["'`]""", re.I)
 REL_PATH_RE = re.compile(
     r"""["'`](/[a-zA-Z0-9_\-./?&=%~:@!$+,;*\[\]{}]{2,200})["'`]""")
-SLASHED_RE = re.compile(  # "api/v1/users" — no leading slash
+SLASHED_RE = re.compile(  # "api/v1/users" - no leading slash
     r"""["'`]([a-zA-Z0-9_\-]+(?:/[a-zA-Z0-9_\-.:?&=%~{}]+)+)["'`]""")
 WS_URL_RE = re.compile(r"""["'`](wss?://[^"'`\s]+)["'`]""", re.I)
 
@@ -105,7 +105,9 @@ def mine(manifest):
     """Walk every prettified JS file -> endpoints, params, per-file counts."""
     endpoints, per_file = set(), {}
     for entry in manifest:
-        text = Path(entry["pretty_file"]).read_text(encoding="utf-8", errors="replace")
+        text = entry.get("_pretty_text")
+        if text is None:
+            text = Path(entry["pretty_file"]).read_text(encoding="utf-8", errors="replace")
         n0 = len(endpoints)
         for raw in extract(text):
             endpoints.add(normalize(raw, entry["url"]))

@@ -1,9 +1,14 @@
-# WarpZone scope file - one host per line, # starts a comment.
-# A bare host covers that host AND all of its subdomains.
-# "*.target.com" behaves the same as "target.com".
+# WarpZone scope file. One host per line. "#" starts a comment.
 #
-# ONLY put hosts you are AUTHORIZED to test here.
+# A bare host covers that host AND all of its subdomains.
+# "*.target.com" means the same as "target.com".
+#
+# Start a line with "!" (or "-") to EXCLUDE a host, even when an include
+# would otherwise cover it. Exclusions always win.
+#
+# Put only hosts you are AUTHORIZED to test here.
 
 # target.com
 # api.target.com
-# staging.target.com
+# !blog.target.com
+# !legacy.target.com

@@ -22,7 +22,8 @@ dependencies = ["requests>=2.25"]
 [project.optional-dependencies]
 game = ["rich>=13.0"]
 beautify = ["jsbeautifier>=1.15"]
-all = ["rich>=13.0", "jsbeautifier>=1.15"]
+confirm = ["playwright>=1.40"]
+all = ["rich>=13.0", "jsbeautifier>=1.15", "playwright>=1.40"]
 
 [project.scripts]
 warpzone = "warpzone.cli:main"

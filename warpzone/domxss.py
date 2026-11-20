@@ -1,13 +1,15 @@
-"""World 1-4 (BOWSER'S CASTLE, part A): DOM-XSS source->sink taint leads.
+"""World 1-4 (BOWSER'S CASTLE, part A): DOM-XSS source-to-sink taint leads.
 
 Regex dataflow heuristics over prettified JS:
-  - every SINK occurrence (innerHTML, eval, document.write, location=...) gets a line number
+  - every SINK hit (innerHTML, eval, document.write, location=...) gets a line number
   - we look for attacker-controlled SOURCES (location.hash, postMessage, ...)
     on the same line (HIGH), within 6 lines above (MEDIUM) or anywhere in the
     file (LOW)
-  - file-level sanitizer detection (DOMPurify/escapeHTML/...) downgrades confidence
+  - a sanitizer in the file (DOMPurify/escapeHTML/...) lowers confidence
 
-These are LEADS for manual testing - each lead ships with a test recipe.
+These are LEADS for hands-on testing, and each one ships with a test recipe.
+Point the --confirm browser checker at the pages that load this JS to turn a
+likely lead into a real, fired XSS.
 """
 import re
 
@@ -15,28 +17,28 @@ import re
 SINKS = [
     (re.compile(r"\.innerHTML\s*="), "html-sink",
      "Inject <img src=x onerror=alert(1)> via the source that feeds it"),
-    (re.compile(r"\.outerHTML\s*="), "html-sink", "Same as innerHTML — payload replaces the whole node"),
+    (re.compile(r"\.outerHTML\s*="), "html-sink", "Same as innerHTML - payload replaces the whole node"),
     (re.compile(r"insertAdjacentHTML\s*\("), "html-sink", "Payload in the html argument; try beforeend/afterbegin positions"),
-    (re.compile(r"document\.write(?:ln)?\s*\("), "html-sink", "Payload overwrites the page — <svg onload=alert(1)>"),
+    (re.compile(r"document\.write(?:ln)?\s*\("), "html-sink", "Payload overwrites the page - <svg onload=alert(1)>"),
     (re.compile(r"(?<![\w$.])eval\s*\("), "js-sink", "Direct code execution: alert(1) as the argument"),
     (re.compile(r"(?<![\w$.])(?:setTimeout|setInterval)\s*\(\s*['\"`]"), "js-sink",
      "String arg is eval-like: setTimeout('alert(1)')"),
     (re.compile(r"new\s+Function\s*\("), "js-sink", "Function('...alert(1)...') executes the body"),
-    (re.compile(r"(?<![\w$.])execScript\s*\("), "js-sink", "IE-style eval — alert(1) directly"),
+    (re.compile(r"(?<![\w$.])execScript\s*\("), "js-sink", "IE-style eval - alert(1) directly"),
     (re.compile(r"globalEval\s*\("), "js-sink", "jQuery globalEval = indirect eval"),
     (re.compile(r"\.html\s*\("), "html-sink", "jQuery .html() = raw HTML injection"),
-    (re.compile(r"dangerouslySetInnerHTML"), "html-sink", "React raw-HTML escape hatch — prop value is your payload"),
-    (re.compile(r"\bsrcdoc\b"), "html-sink", "iframe srcdoc is its own document — full HTML payload"),
+    (re.compile(r"dangerouslySetInnerHTML"), "html-sink", "React raw-HTML escape hatch - prop value is your payload"),
+    (re.compile(r"\bsrcdoc\b"), "html-sink", "iframe srcdoc is its own document - full HTML payload"),
     (re.compile(r"setAttribute\s*\(\s*['\"](?:src|href|action|formaction|onclick|on[a-z]+)"), "attr-sink",
-     "setAttribute('onclick', user) — payload must be pure JS: alert(1)"),
+     "setAttribute('onclick', user) - payload must be pure JS: alert(1)"),
     (re.compile(r"(?:window\.|document\.)?location\.(?:href|replace|assign)\s*[+\-]?="), "url-sink",
      "javascript:alert(1) or open-redirect via //evil.com"),
     (re.compile(r"(?:window\.|document\.)?location\s*=\s*[^=]"), "url-sink", "javascript: / protocol-relative redirect"),
     (re.compile(r"window\.open\s*\("), "url-sink", "javascript: URL or open redirect"),
     (re.compile(r"jQuery\([^)]*\)\.load\s*\(|\$\.load\s*\("), "url-sink", "jQuery .load() injects fetched HTML"),
     (re.compile(r"addEventListener\s*\(\s*['\"]message['\"]"), "handler",
-     "postMessage listener — send crafted event with a bad origin from console"),
-    (re.compile(r"\.onmessage\s*="), "handler", "postMessage handler — same origin-check test"),
+     "postMessage listener - send crafted event with a bad origin from console"),
+    (re.compile(r"\.onmessage\s*="), "handler", "postMessage handler - same origin-check test"),
 ]
 
 SOURCES = [
@@ -45,7 +47,7 @@ SOURCES = [
     (re.compile(r"\blocation\.href\b"), "location.href", "page#payload / ?q=payload"),
     (re.compile(r"document\.(?:URL|documentURI|baseURI)"), "document.URL", "fragment payload"),
     (re.compile(r"document\.referrer"), "document.referrer", "poisoned Referer header"),
-    (re.compile(r"document\.cookie"), "document.cookie", "cookie value → sink (needs a cookie-setting vector)"),
+    (re.compile(r"document\.cookie"), "document.cookie", "cookie value -> sink (needs a cookie-setting vector)"),
     (re.compile(r"window\.name"), "window.name", "set window.name in console, then reload"),
     (re.compile(r"event\.data|\.data\s*[,)]"), "postMessage event.data", "postMessage(obj,'*') from console"),
     (re.compile(r"localStorage\.getItem|localStorage\["), "localStorage", "set localStorage key in console"),
@@ -60,7 +62,7 @@ SANITIZERS = ("DOMPurify", "sanitize", "sanitizer", "escapeHTML", "encodeHTML",
 
 def _snip(line, width=180):
     s = line.strip()
-    return s if len(s) <= width else s[:width] + "…"
+    return s if len(s) <= width else s[:width] + "..."
 
 
 def analyze(manifest, window=6):
@@ -68,7 +70,9 @@ def analyze(manifest, window=6):
     leads = []
     for entry in manifest:
         path = entry["pretty_file"]
-        text = open(path, encoding="utf-8", errors="replace").read()
+        text = entry.get("_pretty_text")
+        if text is None:
+            text = open(path, encoding="utf-8", errors="replace").read()
         lines = text.splitlines()
         sanitized = any(s in text for s in SANITIZERS)
         file_sources = [name for rx, name, _ in SOURCES if rx.search(text)]
@@ -98,7 +102,7 @@ def analyze(manifest, window=6):
                 }
                 if sanitized:
                     lead["taint"] = "low"
-                    lead["note"] = "sanitizer present in file — verify it really covers this flow"
+                    lead["note"] = "sanitizer present in file - verify it really covers this flow"
                 leads.append(lead)
     return leads
 
@@ -108,7 +112,7 @@ def _seed_payload(category):
         "html-sink": "<img src=x onerror=alert(1)>",
         "js-sink": "alert(1)",
         "url-sink": "javascript:alert(1)  |  #\"><img src=x onerror=alert(1)>",
-        "attr-sink": "alert(1)  (pure JS — it lands inside a handler)",
+        "attr-sink": "alert(1)  (pure JS - it lands inside a handler)",
         "handler": "postMessage({'x':'<img src=x onerror=alert(1)>'},'*') from console",
     }.get(category, "<svg onload=alert(1)>")
 

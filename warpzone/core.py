@@ -1,7 +1,9 @@
-"""WarpZone core: scope enforcement, HTTP plumbing, subprocess bridges, utils.
+"""WarpZone core: scope rules, HTTP plumbing, tool bridges, small helpers.
 
-The scope check (`in_scope`) is the single most important function in the
-project — every module funnels its targets through it before any request.
+The scope check is the most important thing in here. Every module sends its
+targets through it before touching the network, so an out-of-scope host never
+gets a request. The scope also understands exclusions: you can say "all of
+target.com, but keep away from blog.target.com".
 """
 import hashlib
 import math
@@ -19,11 +21,18 @@ STATIC_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".css", ".woff",
                ".woff2", ".ttf", ".eot", ".ico", ".mp4", ".webm", ".webp",
                ".mp3", ".otf", ".map")
 
+_HOST_RE = re.compile(r"^[a-z0-9._-]+$")
+
 
 # ---------------------------------------------------------------- scope ----
 
+def is_wildcard(entry):
+    """True when a scope line asks for subdomains only (starts with "*.")."""
+    return str(entry).strip().lower().startswith("*.")
+
+
 def parse_scope_entry(entry):
-    """Normalize one scope entry to a bare hostname suffix (no scheme/wildcard)."""
+    """Turn one scope line into a bare hostname (drop scheme, wildcard, slash)."""
     e = entry.strip().lower()
     if "://" in e:
         e = urlparse(e).hostname or e
@@ -31,23 +40,124 @@ def parse_scope_entry(entry):
     return e
 
 
-def in_scope(host, scope_entries):
-    """True if host is inside scope.
+class Scope:
+    """What you are allowed to touch.
 
-    A bare entry 'target.com' covers target.com and every subdomain;
-    '*.target.com' behaves the same (we treat leading wildcards as the
-    suffix form). Off-scope hosts are ALWAYS refused.
+    includes: hosts you may test. They come in two shapes:
+      "target.com"    the apex AND every subdomain (covers more)
+      "*.target.com"  subdomains only, NOT the apex target.com itself
+    excludes: hosts to stay away from, even when an include would cover them.
+              An exclude always wins, so "target.com" + exclude "blog.target.com"
+              lets you test everything except blog (and blog's subdomains).
     """
-    if not host:
-        return False
-    h = host.lower().rstrip(".")
-    if not re.match(r"^[a-z0-9._-]+$", h):
-        return False
-    for entry in scope_entries:
-        e = parse_scope_entry(entry)
-        if e and (h == e or h.endswith("." + e)):
-            return True
-    return False
+
+    def __init__(self, includes=(), excludes=()):
+        self.apex = []   # host -> apex + all subdomains
+        self.subs = []   # host -> subdomains only (apex stays out)
+        for x in includes:
+            host = parse_scope_entry(x)
+            if not host:
+                continue
+            (self.subs if is_wildcard(x) else self.apex).append(host)
+        self.excludes = [e for e in (parse_scope_entry(x) for x in excludes) if e]
+
+    @property
+    def includes(self):
+        """All include hosts (bare), apex ones first. Kept for callers."""
+        return list(self.apex) + list(self.subs)
+
+    @staticmethod
+    def _clean(host):
+        if not host:
+            return None
+        h = host.lower().rstrip(".")
+        return h if _HOST_RE.match(h) else None
+
+    @staticmethod
+    def _under(h, entries):
+        """True when h is a subdomain of any entry (apex itself not counted)."""
+        return any(h.endswith("." + e) for e in entries)
+
+    def allows(self, host):
+        h = self._clean(host)
+        if not h:
+            return False
+        if h in self.excludes or self._under(h, self.excludes):
+            return False
+        if h in self.apex or self._under(h, self.apex):
+            return True       # apex rule: the host itself or any subdomain
+        return self._under(h, self.subs)   # wildcard rule: subdomains only
+
+    def describe(self):
+        """Plain-words summary for the auto-scope note."""
+        parts = [e + " and its subdomains" for e in self.apex]
+        parts += ["subdomains of " + e + " (not the apex)" for e in self.subs]
+        parts += ["never " + e for e in self.excludes]
+        return "; ".join(parts) or "none"
+
+    def lines(self):
+        """How the scope reads back, for scope_used.txt."""
+        return (list(self.apex)
+                + ["*." + e for e in self.subs]
+                + ["!" + e for e in self.excludes])
+
+    def __iter__(self):
+        return iter(self.includes)
+
+    def __bool__(self):
+        return bool(self.apex or self.subs)
+
+
+def in_scope(host, scope):
+    """True when host is allowed. Works with a Scope or a plain host list."""
+    if isinstance(scope, Scope):
+        return scope.allows(host)
+    return Scope(scope or []).allows(host)
+
+
+def scope_from_target(domain=None, url=None, js_list=None):
+    """Build a scope straight from the target, so --scope is optional.
+
+    -d telekom.de      -> telekom.de and every subdomain
+    -d *.telekom.de    -> subdomains only, NOT telekom.de itself
+    -u https://host/x  -> that host and its subdomains
+    --js-list file     -> every host seen in the JS URL list
+
+    A bare host covers the apex and its subdomains; a "*." wildcard covers the
+    subdomains but leaves the apex out. It never reaches beyond the hosts you
+    pointed it at.
+    """
+    includes = []
+    if domain:
+        includes.append(domain)   # raw, so "*.target.com" stays subdomains-only
+    elif url:
+        includes.append(parse_scope_entry(urlparse(url).hostname or ""))
+    elif js_list:
+        try:
+            for line in load_lines(js_list):
+                includes.append(parse_scope_entry(urlparse(line).hostname or ""))
+        except OSError:
+            pass
+    includes = list(dict.fromkeys(e for e in includes if e))
+    return Scope(includes, [])
+
+
+def load_scope(path):
+    """Read a scope file into a Scope.
+
+    One host per line. A line starting with "!" or "-" is an exclusion.
+    Lines starting with "#" are comments.
+    """
+    includes, excludes = [], []
+    for line in Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        if s[0] in "!-":
+            excludes.append(s[1:].strip())
+        else:
+            includes.append(s)
+    return Scope(includes, excludes)
 
 
 def load_lines(path):
@@ -63,7 +173,7 @@ def load_lines(path):
 # ------------------------------------------------------------ subprocess ---
 
 def run(cmd, stdin=None, timeout=300, cwd=None):
-    """Run a command, return stdout lines (empty list on any failure)."""
+    """Run a command, give back its stdout lines (empty list if it fails)."""
     try:
         p = subprocess.run(cmd, input=stdin, capture_output=True, text=True,
                            timeout=timeout, cwd=cwd)
@@ -101,15 +211,15 @@ def get(session, url, **kw):
 # ------------------------------------------------------------------ utils --
 
 def redact(value, keep=6):
-    """Mask the middle of a secret for report display (full value stays in JSON)."""
+    """Mask the middle of a secret for the report (full value stays in JSON)."""
     v = str(value)
     if len(v) <= keep * 2:
-        return v[:2] + "…" + v[-2:]
-    return v[:keep] + "…" + v[-4:]
+        return v[:2] + "..." + v[-2:]
+    return v[:keep] + "..." + v[-4:]
 
 
 def entropy(s):
-    """Shannon entropy (bits/char) — used to flag opaque high-entropy blobs."""
+    """Shannon entropy (bits per char), used to flag opaque blobs."""
     if not s:
         return 0.0
     freq = {}
@@ -120,7 +230,7 @@ def entropy(s):
 
 
 def safe_name(url, suffix=""):
-    """Filesystem-safe, unique-ish file name derived from a URL."""
+    """A filesystem-safe, mostly-unique file name built from a URL."""
     p = urlparse(url)
     base = (p.netloc + p.path).strip("/").replace("/", "_") or "index"
     base = re.sub(r"[^A-Za-z0-9._-]", "_", base)

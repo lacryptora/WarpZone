@@ -75,12 +75,12 @@ def probe_param(session, url, param, max_payloads=6, timeout=10):
     if best:
         res["verdict"] = "REFLECTED_UNFILTERED"
         res["payload"] = pl.canaryfy(best, canary + "p")
-        res["family"] = "full payload reflected — browser-verify for execution"
+        res["family"] = "full payload reflected - browser-verify for execution"
     elif raw:
         res["verdict"] = "REFLECTED_FILTERED"
         res["payload"] = "context=%s, surviving chars: %s" % (
             ctx["context"], " ".join(sorted(raw)) or "none")
-        res["family"] = "filter present — try polyglots/filter_probe, check other params"
+        res["family"] = "filter present - try polyglots/filter_probe, check other params"
     return res
 
 

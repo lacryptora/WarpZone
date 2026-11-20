@@ -127,27 +127,31 @@ def confirm_live(session, urls, threads=8, prefer_httpx=True):
 
 # -------------------------------------------------------------- discover ---
 
-def discover(args, scope, session, hud):
-    """Return (sorted live in-scope JS URLs, discovered in-scope pages)."""
-    seed = (args.domain or urlparse(args.url).hostname or "").lstrip("*.")
-    start = args.url or ("https://" + seed)
+def discover(crawl, direct_js, args, scope, session, hud):
+    """Find live in-scope JS across every target.
+
+    crawl:     list of (seed_host, start_url) to spider and bridge
+    direct_js: JS URLs to analyze straight away (no crawling)
+    Returns (sorted live in-scope JS URLs, discovered in-scope pages).
+    """
     urls, pages = set(), set()
 
-    if args.js_list:
-        urls.update(core.load_lines(args.js_list))
-        hud.note(f"loaded {len(urls)} URLs from {args.js_list}")
-    else:
+    if direct_js:
+        urls.update(direct_js)
+        hud.note(f"loaded {len(direct_js)} JS URLs directly")
+
+    only = args.bridges.split(",") if args.bridges else None
+    for seed, start in crawl:
         if not args.no_bridges:
-            hud.pipe("scanning for warp pipes (gau/waymore/katana/hakrawler)")
-            found, used = bridge_urls(seed, start, args.depth,
-                                      args.bridges.split(",") if args.bridges else None)
+            hud.pipe(f"scanning for warp pipes on {seed} (gau/waymore/katana/hakrawler)")
+            found, used = bridge_urls(seed, start, args.depth, only)
             if used:
-                hud.sfx(f"bridges online: {', '.join(used)} → {len(found)} URLs")
+                hud.sfx(f"bridges online: {', '.join(used)} -> {len(found)} URLs")
             else:
-                hud.note("no crawl bridges installed — using built-in spider only")
+                hud.note("no crawl bridges installed, using the built-in spider only")
             urls.update(found)
         js_before = len(urls)
-        hud.pipe("built-in spider crawling the overworld")
+        hud.pipe(f"built-in spider crawling {start}")
         spider_js, spider_pages = spider(session, start, scope, args.max_pages)
         urls.update(spider_js)
         pages.update(spider_pages)
@@ -161,7 +165,7 @@ def discover(args, scope, session, hud):
         return [], []
     pages = sorted({p for p in pages if core.in_scope(urlparse(p).hostname, scope)})
 
-    hud.note(f"{len(js)} in-scope .js URLs — confirming liveness")
+    hud.note(f"{len(js)} in-scope .js URLs - confirming liveness")
     js = sorted(set(confirm_live(session, js, args.threads)))
     hud.coin(len(js))
     hud.sfx(f"{len(js)} live JS files collected" +

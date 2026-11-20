@@ -5,7 +5,7 @@ Order of preference:
   2. `js-beautify` binary
   3. built-in brace-aware re-indenter (works with zero deps on minified code)
 
-Prettified files are what all later analysis reads — findings get real line
+Prettified files are what all later analysis reads, so findings get real line
 numbers and humans can actually review them.
 """
 import shutil
@@ -25,7 +25,7 @@ except ImportError:
 # ------------------------------------------------------------- beautify ----
 
 def builtin_beautify(text):
-    """Tiny string-aware re-indenter: newline after ; { } — never inside quotes."""
+    """Tiny string-aware re-indenter: newline after ; { } but never inside quotes."""
     out, line, depth = [], "", 0
     quote, escaped = None, False
 
@@ -117,6 +117,7 @@ def fetch_one(session, url, outdir, keep_raw=False):
     p.write_text(pretty, encoding="utf-8")
     entry["pretty_file"] = str(p)
     entry["pretty_lines"] = pretty.count("\n") + 1
+    entry["_pretty_text"] = pretty  # in-memory reuse: read the file once, not 3x
     return entry
 
 

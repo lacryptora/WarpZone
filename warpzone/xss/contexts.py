@@ -1,7 +1,7 @@
 """WarpZone XSS arsenal: reflection context detection.
 
 Sends an alphanumeric canary, finds where it lands in the HTML, then sends a
-char-probe (<> "' `) to see which metacharacters survive — the two facts that
+char-probe (<> "' `) to see which metacharacters survive - the two facts that
 decide which payload family can work.
 """
 import re
