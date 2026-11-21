@@ -82,14 +82,36 @@ def run(urls, scope, hud, limit=15, timeout=15):
 
     confirmed = []
     ms = max(2000, int(timeout) * 1000)
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
-        try:
-            for url in targets:
-                confirmed.extend(_check_url(browser, url, ms, hud))
-        finally:
-            browser.close()
+    try:
+        with sync_playwright() as pw:
+            try:
+                browser = pw.chromium.launch(headless=True)
+            except Exception as e:
+                hud.warn("browser confirm skipped: Chromium could not start.")
+                hud.note(_launch_hint(e))
+                hud.note("fix: run 'playwright install-deps' (needs sudo on Linux), "
+                         "then 'playwright install chromium', and try --confirm again")
+                return []
+            try:
+                for url in targets:
+                    confirmed.extend(_check_url(browser, url, ms, hud))
+            finally:
+                browser.close()
+    except Exception as e:
+        # Never let a browser hiccup sink the whole run / the final report.
+        hud.warn("browser confirm stopped early, keeping what it found")
+        hud.note(_launch_hint(e))
     return confirmed
+
+
+def _launch_hint(err):
+    """Pull the useful one-liner out of Playwright's very long error text."""
+    msg = str(err)
+    for line in msg.splitlines():
+        if "shared librar" in line or "cannot open shared object" in line:
+            return "details: " + line.strip()
+    first = msg.splitlines()[0] if msg.splitlines() else "unknown error"
+    return "details: " + first
 
 
 def _check_url(browser, url, ms, hud):

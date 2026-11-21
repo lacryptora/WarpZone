@@ -214,8 +214,13 @@ def pipeline(args, hud, scope, session, outdir, crawl, direct_js):
 
     if args.confirm:
         hud.warn("browser confirm active: firing token payloads in a headless browser (in-scope only)")
-        confirmed = confirm.run(cand, scope, hud,
-                                limit=args.confirm_limit, timeout=args.timeout)
+        try:
+            confirmed = confirm.run(cand, scope, hud,
+                                    limit=args.confirm_limit, timeout=args.timeout)
+        except Exception as e:
+            hud.warn("browser confirm failed, moving on to write the report")
+            hud.note("details: " + (str(e).splitlines()[0] if str(e) else "unknown"))
+            confirmed = []
         confirm.write(outdir, confirmed)
         for c in confirmed:
             hud.item(f"[CONFIRMED {c['source']}] {c['url']} payload={c['payload']}")
