@@ -24,12 +24,13 @@ except ImportError:
 
 CREATOR = "Shaimaa Khattab"
 
-# Feminine palette: hot pink, soft magenta, lavender, warm rose.
-PINK = "#ff5fa2"      # headline pink
-MAGENTA = "#ff84c6"   # soft magenta
-LAVENDER = "#c77dff"  # purple accent
-ROSE = "#ffb3d1"      # light rose text
-MINT = "#8be9c0"      # calm accent for "good" notes
+# Dusty palette: muted, vintage, easy on the eyes. Rose, mauve, plum,
+# warm sand, sage. No neon.
+PINK = "#c98a95"      # dusty rose (headlines, borders)
+MAGENTA = "#bb8f9d"   # dusty mauve (soft accent, sfx)
+LAVENDER = "#9d8aa6"  # dusty plum (purple accent)
+ROSE = "#d2b9a3"      # warm sand (light text)
+MINT = "#a3b18a"      # dusty sage (good notes)
 
 BANNER = r"""
 ██╗    ██╗ █████╗ ██████╗ ██████╗ ███████╗ ██████╗ ███╗   ██╗███████╗
