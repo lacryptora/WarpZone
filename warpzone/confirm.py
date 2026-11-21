@@ -81,7 +81,8 @@ def run(urls, scope, hud, limit=15, timeout=15):
         return []
 
     confirmed = []
-    ms = max(2000, int(timeout) * 1000)
+    # Cap the per-navigation wait so one slow page cannot stall the whole run.
+    ms = max(1500, min(int(timeout), 10) * 1000)
     try:
         with sync_playwright() as pw:
             try:
@@ -92,8 +93,12 @@ def run(urls, scope, hud, limit=15, timeout=15):
                 hud.note("fix: run 'playwright install-deps' (needs sudo on Linux), "
                          "then 'playwright install chromium', and try --confirm again")
                 return []
+            n = len(targets)
+            hud.note(f"confirming {n} in-scope URLs in a real browser "
+                     f"(the slow part, ~10-40s each, no news is normal)")
             try:
-                for url in targets:
+                for i, url in enumerate(targets, 1):
+                    hud.item(f"[{i}/{n}] checking {url}")
                     confirmed.extend(_check_url(browser, url, ms, hud))
             finally:
                 browser.close()
