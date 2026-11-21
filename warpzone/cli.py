@@ -29,7 +29,7 @@ def build_parser():
         description="WarpZone: Mario-styled JS recon and XSS arsenal. "
                     "AUTHORIZED TARGETS ONLY; scope is checked on every request.",
         epilog="Made by Shaimaa Khattab. Every JS file is a warp pipe.")
-    g = ap.add_mutually_exclusive_group(required=True)
+    g = ap.add_mutually_exclusive_group(required=False)
     g.add_argument("-d", "--domain",
                    help="target domain. 'target.com' = the apex and all subdomains; "
                         "'*.target.com' = subdomains only, not the apex")
@@ -37,6 +37,10 @@ def build_parser():
     g.add_argument("--js-list", dest="js_list",
                    help="file of JS URLs to analyze directly")
     g.add_argument("--targets", help="file of mixed targets (domains, *.wildcards, URLs), one per line")
+    g.add_argument("--confirm-from", dest="confirm_from", metavar="PATH",
+                   help="skip all crawling and only run the browser confirm on the URLs "
+                        "from a saved run: a results folder, its findings.json, or a .txt "
+                        "list of URLs. Reuses that run's scope if it can.")
     ap.add_argument("--scope",
                     help="scope file (optional). One host per line; '!host' excludes; # comments. "
                          "If left off, scope is built from the target and covers its subdomains.")
@@ -259,14 +263,114 @@ def pipeline(args, hud, scope, session, outdir, crawl, direct_js):
     return res
 
 
+# -------------------------------------------------- confirm-only mode ------
+
+def _candidates_from_findings(data):
+    """Rebuild the confirm candidate list from a saved findings.json."""
+    eps = [u for u in data.get("endpoints", []) if "{" not in u and "}" not in u]
+    pages = list(data.get("pages", []))
+    base = list(dict.fromkeys(eps + pages))
+    seen, out = set(), []
+    for u in base:
+        key = u.split("?")[0]
+        if key not in seen:
+            seen.add(key)
+            out.append(u)
+    return out
+
+
+def _load_saved_urls(path):
+    """Get URLs to confirm from a saved run.
+
+    PATH may be a results folder (reads findings.json, else endpoints.txt),
+    a findings.json file, or a plain .txt list of URLs (one per line).
+    """
+    p = Path(path)
+    if p.is_dir():
+        fj = p / "findings.json"
+        if fj.exists():
+            data = json.loads(fj.read_text(encoding="utf-8", errors="replace"))
+            return _candidates_from_findings(data)
+        ep = p / "endpoints.txt"
+        if ep.exists():
+            return core.load_lines(ep)
+        return []
+    if p.suffix.lower() == ".json":
+        data = json.loads(p.read_text(encoding="utf-8", errors="replace"))
+        return _candidates_from_findings(data)
+    return [u for u in core.load_lines(p) if "://" in u]
+
+
+def _scope_for_confirm(args, urls):
+    """Scope for confirm-only: --scope, else the saved run's scope_used.txt,
+    else built from the hosts seen in the saved URLs."""
+    if args.scope:
+        return core.load_scope(args.scope)
+    p = Path(args.confirm_from)
+    saved = (p / "scope_used.txt") if p.is_dir() else p.parent / "scope_used.txt"
+    if saved.exists():
+        return core.load_scope(saved)
+    hosts = [h for h in (urlparse(u).hostname for u in urls) if h]
+    return core.Scope(list(dict.fromkeys(hosts)), [])
+
+
+def confirm_only(args, hud, outdir):
+    """Run just the browser confirm step against a saved run's URLs."""
+    hud.banner()
+    urls = _load_saved_urls(args.confirm_from)
+    if not urls:
+        hud.game_over("no URLs found in " + args.confirm_from +
+                      " (expected a results folder, findings.json, or a .txt URL list)")
+        return None
+    scope = _scope_for_confirm(args, urls)
+    (outdir / "scope_used.txt").write_text("\n".join(scope.lines()) + "\n", encoding="utf-8")
+    hud.note(f"confirm-only: {len(urls)} saved URLs from {args.confirm_from}")
+    hud.note("scope = " + scope.describe())
+
+    hud.level(4)
+    hud.warn("browser confirm active: firing token payloads in a headless browser (in-scope only)")
+    try:
+        confirmed = confirm.run(urls, scope, hud,
+                                limit=args.confirm_limit, timeout=args.timeout)
+    except Exception as e:
+        hud.warn("browser confirm failed")
+        hud.note("details: " + (str(e).splitlines()[0] if str(e) else "unknown"))
+        confirmed = []
+    confirm.write(outdir, confirmed)
+    for c in confirmed:
+        hud.item(f"[CONFIRMED {c['source']}] {c['url']} payload={c['payload']}")
+    if not confirmed and confirm.available():
+        hud.note("nothing fired. Raise --confirm-limit to try more of the saved URLs.")
+    hud.course_clear(4, f"{len(confirmed)} confirmed from {len(urls)} saved URLs")
+    hud.sfx("confirm-only run done")
+    return {"confirmed_xss": confirmed, "urls": len(urls)}
+
+
 # ------------------------------------------------------------------ main ----
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
     hud = hud_mod.HUD(game=not args.no_game)
-    session = core.make_session(insecure=args.insecure, timeout=args.timeout)
     ts = time.strftime("%Y%m%d_%H%M%S")
 
+    # Fast path: just re-run the browser confirm on a saved run's URLs.
+    if args.confirm_from:
+        outdir = Path(args.out or f"warpzone_confirm_{ts}")
+        outdir.mkdir(parents=True, exist_ok=True)
+        res = confirm_only(args, hud, outdir)
+        if res:
+            print("\n[+] files in", outdir, flush=True)
+            for f in sorted(p.name for p in outdir.rglob("*") if p.is_file()):
+                print("    -", f)
+            print(f"\n[+] CONFIRM-ONLY - {len(res['confirmed_xss'])} confirmed "
+                  f"from {res['urls']} saved URLs")
+        return
+
+    if not (args.domain or args.url or args.js_list or args.targets):
+        sys.exit("[!] give a target (-d / -u / --targets / --js-list) or "
+                 "--confirm-from a saved run. See --help.")
+
+    session = core.make_session(insecure=args.insecure, timeout=args.timeout)
     crawl, direct_js, scope = _resolve_targets(args)
     if not scope:
         sys.exit("[!] no scope could be worked out. Pass a -d domain, a -u URL, "

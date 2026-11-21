@@ -161,11 +161,31 @@ common DOM XSS source, and only reports CONFIRMED when an alert actually runs:
 Confirmed hits land in `confirmed_xss.json` and at the top of the report.
 All payloads are harmless `alert()` markers for authorized testing only.
 
+### Rerun confirm without recrawling
+
+A full crawl can take hours. When you only want to retry the browser step (say
+you just installed the browser, or raised `--confirm-limit`), point
+`--confirm-from` at a finished run and WarpZone skips straight to confirm:
+
+```bash
+# reuse a whole results folder (its findings.json and its scope)
+warpzone --confirm-from klarna_full --confirm-limit 40 --out klarna_confirm
+
+# or a findings.json, or a plain .txt list of URLs
+warpzone --confirm-from klarna_full/findings.json
+warpzone --confirm-from my_urls.txt --scope scope.txt
+```
+
+It pulls the URLs from the saved run and reuses that run's `scope_used.txt`, so
+you stay in scope without re-passing `--scope`. No crawling, no bridges, just
+the headless browser.
+
 ## Main options
 
 | Flag | What it does |
 | --- | --- |
 | `-d DOMAIN` / `-u URL` / `--targets FILE` / `--js-list FILE` | pick the target (one of these) |
+| `--confirm-from PATH` | skip crawling; only confirm URLs from a saved run (folder, findings.json, or .txt) |
 | `--scope FILE` | optional scope file (supports `!` exclusions); built from the target if omitted |
 | `--bridges gau,waymore,katana,hakrawler` | choose crawl bridges |
 | `--no-bridges` | built-in spider only |
