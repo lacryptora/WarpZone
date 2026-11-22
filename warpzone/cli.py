@@ -129,13 +129,24 @@ def _resolve_targets(args):
 
 # ------------------------------------------------------------- pipeline ----
 
+def _concrete(u):
+    """True for a real, reachable URL (not a route template).
+
+    Drops framework route patterns that are not real pages, like
+    /:nextInternalLocale, /api/md/:slug*, /[id], /{id} - a server never
+    routes those, so firing payloads at them is wasted effort.
+    """
+    path = urlparse(u).path
+    return "://" in u and not any(c in path for c in ":*[]{}")
+
+
 def _candidate_urls(args, eps, pages):
-    """Pages and simple (no-template) endpoints worth active testing, deduped by path."""
+    """Pages and real (non-template) endpoints worth active testing, deduped by path."""
     if args.xss_url:
         base = [args.xss_url]
     else:
-        base = [u for u in eps if "{" not in u and "}" not in u][:args.xss_endpoints_limit]
-    base = list(dict.fromkeys(base + list(pages)))
+        base = [u for u in eps if _concrete(u)][:args.xss_endpoints_limit]
+    base = list(dict.fromkeys(base + [p for p in pages if _concrete(p)]))
     seen, out = set(), []
     for u in base:
         key = u.split("?")[0]
@@ -267,8 +278,8 @@ def pipeline(args, hud, scope, session, outdir, crawl, direct_js):
 
 def _candidates_from_findings(data):
     """Rebuild the confirm candidate list from a saved findings.json."""
-    eps = [u for u in data.get("endpoints", []) if "{" not in u and "}" not in u]
-    pages = list(data.get("pages", []))
+    eps = [u for u in data.get("endpoints", []) if _concrete(u)]
+    pages = [p for p in data.get("pages", []) if _concrete(p)]
     base = list(dict.fromkeys(eps + pages))
     seen, out = set(), []
     for u in base:
