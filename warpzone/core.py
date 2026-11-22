@@ -160,6 +160,24 @@ def load_scope(path):
     return Scope(includes, excludes)
 
 
+_BAD_URL_CHARS = set(" <>\"'`{}|\\^\n\r\t")
+
+
+def is_sane_url(u):
+    """Reject junk that is not a real URL (spaces, HTML, quotes, huge blobs).
+
+    Keeps WarpZone from fetching and analyzing garbage like
+    'https://app.klarna.com/Data plan found from mParticle.js', which the
+    endpoint miner sometimes scrapes out of inline HTML or JSON.
+    """
+    if not u or len(u) > 2000:
+        return False
+    if any(c in u for c in _BAD_URL_CHARS):
+        return False
+    p = urlparse(u)
+    return p.scheme in ("http", "https") and bool(p.hostname)
+
+
 def load_lines(path):
     """Read a file into non-empty, non-comment lines."""
     out = []

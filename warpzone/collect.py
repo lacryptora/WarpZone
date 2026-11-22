@@ -157,9 +157,10 @@ def discover(crawl, direct_js, args, scope, session, hud):
         pages.update(spider_pages)
         hud.coin(max(0, len(urls) - js_before))
 
-    # keep only real .js files inside scope
+    # keep only real, sane .js files inside scope
     js = sorted({u.split("#")[0] for u in urls
-                 if JS_RE.search(urlparse(u).path)
+                 if core.is_sane_url(u.split("#")[0])
+                 and JS_RE.search(urlparse(u).path)
                  and core.in_scope(urlparse(u).hostname, scope)})
     if not js:
         return [], []

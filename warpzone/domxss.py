@@ -49,7 +49,8 @@ SOURCES = [
     (re.compile(r"document\.referrer"), "document.referrer", "poisoned Referer header"),
     (re.compile(r"document\.cookie"), "document.cookie", "cookie value -> sink (needs a cookie-setting vector)"),
     (re.compile(r"window\.name"), "window.name", "set window.name in console, then reload"),
-    (re.compile(r"event\.data|\.data\s*[,)]"), "postMessage event.data", "postMessage(obj,'*') from console"),
+    (re.compile(r"\b(?:event|evt|ev|msg|message)\.data\b"), "postMessage event.data",
+     "postMessage(obj,'*') from console"),
     (re.compile(r"localStorage\.getItem|localStorage\["), "localStorage", "set localStorage key in console"),
     (re.compile(r"sessionStorage\.getItem|sessionStorage\["), "sessionStorage", "set sessionStorage key in console"),
     (re.compile(r"URLSearchParams"), "URLSearchParams", "?param=<svg onload=alert(1)>"),
@@ -59,6 +60,34 @@ SOURCES = [
 SANITIZERS = ("DOMPurify", "sanitize", "sanitizer", "escapeHTML", "encodeHTML",
               "filterXSS", "textContent", "escape(")
 
+# postMessage is only a real source when the file actually listens for messages.
+MSG_LISTENER = re.compile(r"addEventListener\s*\(\s*['\"]message['\"]|\.onmessage\s*=")
+
+# Shared libraries and framework runtimes. Sinks in here are the library's own
+# internals, not your app's data flow, so they are almost always false positives.
+VENDOR_HINTS = ("jquery", "react-dom", "react.production", "react.development",
+                "mediaelement", "lodash", "moment.min", "polyfill", "bootstrap",
+                "angular", "zone.js", "core-js", "evergreen.core", "/webpack",
+                "/runtime")
+VENDOR_RE = re.compile(r"_next/static/chunks/(?:framework|main|webpack|polyfills|runtime)-")
+
+# Ranking: eval-family worst, then raw HTML, then url/attr, then bare handlers.
+_CAT_WEIGHT = {"js-sink": 5, "html-sink": 4, "url-sink": 3, "attr-sink": 2, "handler": 1}
+_TAINT_WEIGHT = {"high": 100, "medium": 40}
+
+
+def _is_vendor(url):
+    u = (url or "").lower()
+    return bool(VENDOR_RE.search(u)) or any(h in u for h in VENDOR_HINTS)
+
+
+def _score(lead):
+    s = _TAINT_WEIGHT.get(lead["taint"], 0)
+    s += _CAT_WEIGHT.get(lead["category"], 0)
+    if not lead.get("sanitizer_in_file"):
+        s += 25     # a flow with no sanitizer anywhere is worth a closer look
+    return s
+
 
 def _snip(line, width=180):
     s = line.strip()
@@ -66,16 +95,30 @@ def _snip(line, width=180):
 
 
 def analyze(manifest, window=6):
-    """Return DOM-XSS leads across every prettified JS file."""
+    """Return DOM-XSS leads, ranked, with the noise cut out.
+
+    A lead only survives when an attacker source sits ON the sink line (high)
+    or within `window` lines either side of it (medium). A source that merely
+    appears somewhere else in the file is NOT counted - that was the old flood
+    of bogus 'postMessage' tags. Library/framework files are skipped entirely,
+    and postMessage only counts when the file really listens for messages.
+    """
     leads = []
     for entry in manifest:
-        path = entry["pretty_file"]
+        url = entry.get("url", "")
+        path = entry.get("pretty_file", "")
+        if _is_vendor(url) or _is_vendor(path):
+            continue   # library internals, not your data flow
+
         text = entry.get("_pretty_text")
         if text is None:
             text = open(path, encoding="utf-8", errors="replace").read()
         lines = text.splitlines()
         sanitized = any(s in text for s in SANITIZERS)
-        file_sources = [name for rx, name, _ in SOURCES if rx.search(text)]
+        has_msg = bool(MSG_LISTENER.search(text))
+        # Drop postMessage as a candidate source when nothing listens for it.
+        sources = [(rx, name, hint) for rx, name, hint in SOURCES
+                   if has_msg or name != "postMessage event.data"]
         file_sinks = [(rx, cat, recipe) for rx, cat, recipe in SINKS if rx.search(text)]
         if not file_sinks:
             continue
@@ -84,26 +127,30 @@ def analyze(manifest, window=6):
             for rx, cat, recipe in file_sinks:
                 if not rx.search(line):
                     continue
-                same = [name for srx, name, _ in SOURCES if srx.search(line)]
+                same = [name for srx, name, _ in sources if srx.search(line)]
                 if same:
                     lvl, srcs = "high", same
                 else:
-                    nearby = [name for srx, name, _ in SOURCES
-                              if any(srx.search(l) for l in lines[max(0, lineno - 1 - window):lineno - 1])]
-                    lvl, srcs = ("medium", nearby) if nearby else ("low", file_sources)
-                if lvl == "low" and not file_sources:
-                    continue  # sink with no source anywhere: not a DOM-XSS lead
+                    lo, hi = max(0, lineno - 1 - window), min(len(lines), lineno + window)
+                    ctx = lines[lo:lineno - 1] + lines[lineno:hi]
+                    nearby = [name for srx, name, _ in sources
+                              if any(srx.search(l) for l in ctx)]
+                    if not nearby:
+                        continue   # no source near the sink: not a real lead
+                    lvl, srcs = "medium", nearby
                 lead = {
-                    "file": entry["url"], "pretty_file": path, "line": lineno,
+                    "file": url, "pretty_file": path, "line": lineno,
                     "sink": rx.pattern, "category": cat, "sources": srcs,
                     "taint": lvl, "snippet": _snip(line), "recipe": recipe,
                     "sanitizer_in_file": sanitized,
                     "payload_seed": _seed_payload(cat),
                 }
                 if sanitized:
-                    lead["taint"] = "low"
                     lead["note"] = "sanitizer present in file - verify it really covers this flow"
+                lead["score"] = _score(lead)
                 leads.append(lead)
+
+    leads.sort(key=lambda L: L["score"], reverse=True)
     return leads
 
 
