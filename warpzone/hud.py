@@ -185,6 +185,47 @@ class HUD:
     def item(self, msg):
         self._print(self._t(f"  -> {msg}", MINT))
 
+    # ----------------------------------------------------------- recon ----
+    def recon_summary(self, data, outdir):
+        """A clean, readable map of what recon found."""
+        rows = [
+            ("Subdomains (in scope)", len(data["subdomains"]), "subdomains.txt"),
+            ("Live hosts", len(data["live"]), "live_hosts.txt"),
+            ("URLs", len(data["urls"]), "urls.txt"),
+            ("Live JS files", len(data["js_files"]), "js_files.txt"),
+            ("Endpoints from JS", len(data["js_endpoints"]), "js_endpoints.txt"),
+            ("URLs with params", len(data["params"]), "params.txt"),
+            ("Interesting paths", len(data["interesting"]), "interesting.txt"),
+        ]
+        if self.game_on:
+            from rich.table import Table
+            t = Table(box=box.SIMPLE_HEAVY, border_style=LAVENDER,
+                      title=f"[bold {PINK}]RECON MAP[/]  [dim]{data['target']}[/]",
+                      title_justify="left", pad_edge=False)
+            t.add_column("found", style=ROSE, no_wrap=True)
+            t.add_column("count", style=f"bold {MAGENTA}", justify="right")
+            t.add_column("file", style=MINT)
+            for label, n, fname in rows:
+                t.add_row(label, str(n), fname)
+            self._print(t)
+            self._print(f"[dim]scope:[/] [{LAVENDER}]{data['scope_desc']}[/]")
+            self._print(f"[dim]files in[/] [{MINT}]{outdir}[/]")
+            if data["interesting"]:
+                self._print(f"[bold {PINK}]look here first:[/]")
+                for u in data["interesting"][:8]:
+                    self._print(self._t("  -> " + u, MINT))
+        else:
+            print("\n==================== RECON MAP:", data["target"], "====================")
+            for label, n, fname in rows:
+                print(f"  {label:<24} {n:>6}   {fname}")
+            print("  scope:", data["scope_desc"])
+            print("  files in:", outdir)
+            if data["interesting"]:
+                print("  look here first:")
+                for u in data["interesting"][:8]:
+                    print("    ->", u)
+        self._print()
+
     # ------------------------------------------------------------- hud ----
     def hud(self, extra=""):
         mins, secs = divmod(int(time.time() - self.t0), 60)

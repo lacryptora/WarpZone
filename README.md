@@ -121,6 +121,30 @@ api.target.com
 
 Comments start with `#`. See `scope.example.txt`.
 
+## Recon
+
+Map the whole attack surface before you fire anything. `--recon` runs a
+scope-enforced recon pipeline and bridges to the best community tools when they
+are installed (and falls back to built-ins when they are not):
+
+```bash
+warpzone -d target.com --recon
+warpzone -d target.com --scope scope.txt --recon
+```
+
+It chains `subfinder` + crt.sh (subdomains) -> `httpx` (live) -> `gau` /
+`waybackurls` / `katana` (URLs) -> live JS -> `jsluice` (endpoints from JS),
+checks every host against scope, and writes clean lists plus a readable
+`recon_report.md`:
+
+```
+subdomains.txt  live_hosts.txt  urls.txt  js_files.txt
+js_endpoints.txt  params.txt  interesting.txt  recon_report.md
+```
+
+`interesting.txt` is pre-filtered to the paths worth testing by hand (api,
+auth, admin, upload, account, payment). No payloads are sent in recon mode.
+
 ## Run it
 
 ```bash
@@ -185,6 +209,7 @@ the headless browser.
 | Flag | What it does |
 | --- | --- |
 | `-d DOMAIN` / `-u URL` / `--targets FILE` / `--js-list FILE` | pick the target (one of these) |
+| `--recon` | recon only: subdomains, live hosts, URLs, JS endpoints, interesting paths |
 | `--confirm-from PATH` | skip crawling; only confirm URLs from a saved run (folder, findings.json, or .txt) |
 | `--scope FILE` | optional scope file (supports `!` exclusions); built from the target if omitted |
 | `--bridges gau,waymore,katana,hakrawler` | choose crawl bridges |

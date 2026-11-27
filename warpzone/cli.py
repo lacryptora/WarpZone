@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from . import __version__
-from . import collect, confirm, core, domxss
+from . import collect, confirm, core, domxss, recon
 from . import endpoints as endpoints_mod
 from . import hud as hud_mod
 from . import prettify, report
@@ -55,6 +55,10 @@ def build_parser():
     ap.add_argument("--timeout", type=int, default=15, help="per-request timeout seconds (default 15)")
     ap.add_argument("--entropy", type=float, default=4.2,
                     help="entropy threshold for the opaque-string finder (default 4.2)")
+    ap.add_argument("--recon", action="store_true",
+                    help="RECON mode: subdomains + live hosts + URLs + JS endpoints, "
+                         "bridging subfinder/crt.sh/httpx/gau/waybackurls/katana/jsluice. "
+                         "No payloads; writes clean lists and a recon_report.md")
     ap.add_argument("--probe", action="store_true",
                     help="probe discovered endpoints with safe GETs (status/title)")
     ap.add_argument("--xss", action="store_true",
@@ -363,6 +367,22 @@ def main(argv=None):
     args = build_parser().parse_args(argv)
     hud = hud_mod.HUD(game=not args.no_game)
     ts = time.strftime("%Y%m%d_%H%M%S")
+
+    # Recon mode: map the attack surface, no payloads.
+    if args.recon:
+        _crawl, _js, scope = _resolve_targets(args)
+        domain = (core.parse_scope_entry(args.domain) if args.domain else
+                  (urlparse(args.url).hostname if args.url else
+                   (scope.includes[0] if scope.includes else None)))
+        if not domain:
+            sys.exit("[!] recon needs a target: -d domain (or -u URL / --targets).")
+        session = core.make_session(insecure=args.insecure, timeout=args.timeout)
+        outdir = Path(args.out or f"warpzone_recon_{domain}_{ts}")
+        outdir.mkdir(parents=True, exist_ok=True)
+        (outdir / "scope_used.txt").write_text("\n".join(scope.lines()) + "\n", encoding="utf-8")
+        recon.run(args, hud, scope, session, outdir, domain)
+        print("\n[+] recon files in", outdir, flush=True)
+        return
 
     # Fast path: just re-run the browser confirm on a saved run's URLs.
     if args.confirm_from:
