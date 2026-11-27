@@ -43,26 +43,35 @@ def _which(tool):
 
 # --------------------------------------------------------------- subdomains ---
 
-def find_subdomains(domain, scope, session, hud):
+def find_subdomains(domains, scope, session, hud):
+    """Sweep every registrable domain in scope with subfinder + crt.sh."""
     subs = set()
-    if _which("subfinder"):
-        hud.pipe("subfinder sweeping " + domain)
-        subs.update(core.run(["subfinder", "-d", domain, "-all", "-silent"], timeout=600))
-    else:
-        hud.note("subfinder not installed, skipping passive subdomain brute")
+    have_sf = _which("subfinder")
+    if not have_sf:
+        hud.note("subfinder not installed, using crt.sh only")
 
-    hud.pipe("crt.sh certificate transparency for " + domain)
-    try:
-        r = core.get(session, "https://crt.sh/?q=%25." + domain + "&output=json", timeout=30)
-        if r is not None and r.status_code == 200:
-            for row in r.json():
-                for name in str(row.get("name_value", "")).splitlines():
-                    subs.add(name.strip().lstrip("*.").lower())
-    except Exception:
-        hud.note("crt.sh lookup failed (rate limit or network), moving on")
+    for domain in domains:
+        if have_sf:
+            hud.pipe("subfinder sweeping " + domain)
+            got = core.run(["subfinder", "-d", domain, "-silent"], timeout=600)
+            hud.note(domain + ": subfinder found " + str(len(got)))
+            subs.update(got)
+        hud.pipe("crt.sh certificate transparency for " + domain)
+        try:
+            r = core.get(session, "https://crt.sh/?q=%25." + domain + "&output=json",
+                         timeout=120)
+            if r is not None and r.status_code == 200:
+                rows = r.json()
+                for row in rows:
+                    for name in str(row.get("name_value", "")).splitlines():
+                        subs.add(name.strip().lstrip("*.").lower())
+                hud.note(domain + ": crt.sh found " + str(len(rows)))
+            else:
+                hud.note(domain + ": crt.sh returned nothing (slow or rate limited)")
+        except Exception:
+            hud.note(domain + ": crt.sh lookup failed, moving on")
+        subs.add(domain)   # the registrable domain itself
 
-    # the seed domain itself counts
-    subs.add(domain)
     in_scope = sorted({s for s in subs if s and core.in_scope(s, scope)})
     hud.coin(len(in_scope))
     hud.sfx(str(len(in_scope)) + " in-scope subdomains")
@@ -94,32 +103,38 @@ def live_hosts(hosts, session, hud, threads=8):
 
 # ------------------------------------------------------------------- urls ---
 
-def collect_urls(domain, live, scope, hud):
+def collect_urls(domains, live, scope, hud, katana_cap=100):
     urls = set()
-    starts = live or ["https://" + domain]
+    starts = live or ["https://" + d for d in domains]
+    have_tool = _which("gau") or _which("waybackurls") or _which("katana")
 
-    if _which("gau"):
-        hud.pipe("gau pulling archived URLs")
-        urls.update(core.run(["gau", "--subs", domain], timeout=600))
-    if _which("waybackurls"):
-        hud.pipe("waybackurls pulling archived URLs")
-        urls.update(core.run(["waybackurls"], stdin=domain, timeout=600))
-    if _which("katana"):
+    for domain in domains:
+        if _which("gau"):
+            hud.pipe("gau archived URLs for " + domain)
+            urls.update(core.run(["gau", "--subs", domain], timeout=600))
+        if _which("waybackurls"):
+            hud.pipe("waybackurls for " + domain)
+            urls.update(core.run(["waybackurls"], stdin=domain, timeout=600))
+
+    if _which("katana") and starts:
+        crawl = starts[:katana_cap]   # don't try to crawl thousands of hosts
         with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as tf:
-            tf.write("\n".join(starts))
+            tf.write("\n".join(crawl))
             listfile = tf.name
-        hud.pipe("katana crawling live hosts")
-        urls.update(core.run(["katana", "-list", listfile, "-jc", "-d", "3", "-silent"],
+        hud.pipe("katana crawling " + str(len(crawl)) + " live hosts")
+        urls.update(core.run(["katana", "-list", listfile, "-jc", "-d", "2", "-silent"],
                              timeout=900))
         try:
             Path(listfile).unlink()
         except OSError:
             pass
-    if not (_which("gau") or _which("waybackurls") or _which("katana")):
+
+    if not have_tool:
         hud.note("no URL tools (gau/waybackurls/katana) installed; using the built-in spider")
         from . import collect
+        sess = core.make_session()
         for start in starts[:10]:
-            js, pages = collect.spider(core.make_session(), start, scope, max_pages=25)
+            js, pages = collect.spider(sess, start, scope, max_pages=25)
             urls.update(js)
             urls.update(pages)
 
@@ -220,9 +235,11 @@ def run(args, hud, scope, session, outdir, domain):
     hud.banner()
     hud.note("recon mode: scope = " + scope.describe())
 
-    subs = find_subdomains(domain, scope, session, hud)
+    # sweep every registrable domain in scope, not just the first one
+    domains = scope.includes or [domain]
+    subs = find_subdomains(domains, scope, session, hud)
     live = live_hosts(subs, session, hud, threads=args.threads)
-    urls = collect_urls(domain, live, scope, hud)
+    urls = collect_urls(domains, live, scope, hud)
     jsf = js_files(urls, session, hud, threads=args.threads)
     eps = js_endpoints(jsf, session, hud)
     params, interesting = classify(urls, eps)
