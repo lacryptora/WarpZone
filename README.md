@@ -132,10 +132,10 @@ warpzone -d target.com --recon
 warpzone -d target.com --scope scope.txt --recon
 ```
 
-It chains `subfinder` + crt.sh (subdomains) -> `httpx` (live) -> `gau` /
-`waybackurls` / `katana` (URLs) -> live JS -> `jsluice` (endpoints from JS),
-checks every host against scope, and writes clean lists plus a readable
-`recon_report.md`:
+It chains `subfinder` / `assetfinder` + crt.sh (subdomains) -> `dnsx` +
+`httpx` (live) -> `gau` / `waybackurls` / `waymore` / `katana` (URLs) -> live
+JS -> `jsluice` + regex (endpoints from JS), checks every host against scope,
+and writes clean lists plus a readable `recon_report.md`:
 
 ```
 subdomains.txt  live_hosts.txt  urls.txt  js_files.txt

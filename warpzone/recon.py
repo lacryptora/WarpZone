@@ -3,13 +3,16 @@
 A scope-enforced recon pipeline that bridges to the best community tools when
 they are installed and falls back to built-ins when they are not:
 
-  subfinder   subdomain discovery
-  crt.sh      certificate-transparency subdomains (no tool needed, just HTTP)
-  httpx       liveness
-  gau         archived URLs
-  waybackurls archived URLs
-  katana      live crawl
-  jsluice     endpoint extraction from JS (falls back to a regex miner)
+  subfinder     subdomain discovery
+  assetfinder   more subdomains
+  crt.sh        certificate-transparency subdomains (no tool needed, just HTTP)
+  dnsx          resolve names before probing (cuts the liveness load)
+  httpx         liveness
+  gau           archived URLs
+  waybackurls   archived URLs
+  waymore       more archived URLs
+  katana        live crawl
+  jsluice       endpoint extraction from JS (regex miner always runs too)
 
 Every host is checked against the scope before it is touched, so recon never
 wanders off your targets. Results land as clean text files plus a readable
@@ -56,6 +59,11 @@ def find_subdomains(domains, scope, session, hud):
             got = core.run(["subfinder", "-d", domain, "-silent"], timeout=600)
             hud.note(domain + ": subfinder found " + str(len(got)))
             subs.update(got)
+        if _which("assetfinder"):
+            hud.pipe("assetfinder sweeping " + domain)
+            got = core.run(["assetfinder", "--subs-only", domain], timeout=300)
+            hud.note(domain + ": assetfinder found " + str(len(got)))
+            subs.update(got)
         hud.pipe("crt.sh certificate transparency for " + domain)
         try:
             r = core.get(session, "https://crt.sh/?q=%25." + domain + "&output=json",
@@ -83,18 +91,27 @@ def find_subdomains(domains, scope, session, hud):
 def live_hosts(hosts, session, hud, threads=8):
     if not hosts:
         return []
+    probe = hosts
+    # dnsx first (if present): drop dead names so httpx only probes real hosts
+    if _which("dnsx"):
+        hud.pipe("dnsx resolving " + str(len(hosts)) + " hosts")
+        got = core.run(["dnsx", "-silent"], stdin="\n".join(hosts), timeout=900)
+        if got:
+            probe = got
+            hud.note("dnsx: " + str(len(got)) + " resolvable")
+
     if _which("httpx"):
-        hud.pipe("httpx probing " + str(len(hosts)) + " hosts")
-        out = core.run(["httpx", "-silent", "-mc", "200,201,204,301,302,401,403"],
-                       stdin="\n".join(hosts), timeout=600)
+        hud.pipe("httpx probing " + str(len(probe)) + " hosts")
+        out = core.run(["httpx", "-silent", "-t", "150", "-timeout", "7",
+                        "-mc", "200,201,204,301,302,401,403,405"],
+                       stdin="\n".join(probe), timeout=1800)
         live = sorted({u for u in out if core.is_sane_url(u)})
     else:
-        hud.pipe("built-in liveness check on " + str(len(hosts)) + " hosts")
-        urls = ["https://" + h for h in hosts]
+        hud.pipe("built-in liveness check on " + str(len(probe)) + " hosts")
+        urls = ["https://" + h for h in probe]
         from . import collect
         live = sorted(set(collect.confirm_live(session, urls, threads=threads,
                                                prefer_httpx=False)))
-    # hosts came from the in-scope subdomain list already; just drop any junk
     live = [u for u in live if core.is_sane_url(u)]
     hud.coin(len(live))
     hud.sfx(str(len(live)) + " live hosts")
@@ -106,7 +123,8 @@ def live_hosts(hosts, session, hud, threads=8):
 def collect_urls(domains, live, scope, hud, katana_cap=100):
     urls = set()
     starts = live or ["https://" + d for d in domains]
-    have_tool = _which("gau") or _which("waybackurls") or _which("katana")
+    have_tool = (_which("gau") or _which("waybackurls") or _which("katana")
+                 or _which("waymore"))
 
     for domain in domains:
         if _which("gau"):
@@ -115,6 +133,10 @@ def collect_urls(domains, live, scope, hud, katana_cap=100):
         if _which("waybackurls"):
             hud.pipe("waybackurls for " + domain)
             urls.update(core.run(["waybackurls"], stdin=domain, timeout=600))
+        if _which("waymore"):
+            hud.pipe("waymore for " + domain)
+            from . import collect
+            urls.update(collect._waymore(domain))
 
     if _which("katana") and starts:
         crawl = starts[:katana_cap]   # don't try to crawl thousands of hosts
@@ -161,9 +183,14 @@ def js_files(urls, session, hud, threads=8):
 
 
 def js_endpoints(jsfiles, session, hud, limit=400):
-    """Pull endpoints out of JS: jsluice if present, else a regex fallback."""
+    """Pull endpoints out of JS: jsluice (if present) PLUS a regex miner.
+
+    jsluice reads a file argument, not stdin, so each JS is written to a temp
+    file. The regex miner always runs too, so we never silently get 0 when the
+    JS clearly contains URLs.
+    """
     have_jsluice = _which("jsluice")
-    hud.pipe(("jsluice" if have_jsluice else "built-in regex") +
+    hud.pipe(("jsluice + regex" if have_jsluice else "built-in regex") +
              " mining endpoints from " + str(min(len(jsfiles), limit)) + " JS files")
     found = set()
     for url in jsfiles[:limit]:
@@ -172,16 +199,26 @@ def js_endpoints(jsfiles, session, hud, limit=400):
             continue
         text = r.text
         if have_jsluice:
-            for line in core.run(["jsluice", "urls"], stdin=text, timeout=30):
+            with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False,
+                                             encoding="utf-8") as tf:
+                tf.write(text)
+                jp = tf.name
+            try:
+                for line in core.run(["jsluice", "urls", jp], timeout=30):
+                    try:
+                        u = json.loads(line).get("url")
+                        if u:
+                            found.add(u)
+                    except (ValueError, AttributeError):
+                        continue
+            finally:
                 try:
-                    u = json.loads(line).get("url")
-                    if u:
-                        found.add(u)
-                except (ValueError, AttributeError):
-                    continue
-        else:
-            for m in _URL_IN_JS.finditer(text):
-                found.add(m.group(1))
+                    Path(jp).unlink()
+                except OSError:
+                    pass
+        # always run the regex miner as well (union)
+        for m in _URL_IN_JS.finditer(text):
+            found.add(m.group(1))
     eps = sorted(e for e in found if e and len(e) < 400 and " " not in e)
     hud.coin(len(eps))
     hud.sfx(str(len(eps)) + " endpoints from JS")

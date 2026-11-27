@@ -56,8 +56,8 @@ def build_parser():
     ap.add_argument("--entropy", type=float, default=4.2,
                     help="entropy threshold for the opaque-string finder (default 4.2)")
     ap.add_argument("--recon", action="store_true",
-                    help="RECON mode: subdomains + live hosts + URLs + JS endpoints, "
-                         "bridging subfinder/crt.sh/httpx/gau/waybackurls/katana/jsluice. "
+                    help="RECON mode: subdomains + live hosts + URLs + JS endpoints, bridging "
+                         "subfinder/assetfinder/crt.sh/dnsx/httpx/gau/waybackurls/waymore/katana/jsluice. "
                          "No payloads; writes clean lists and a recon_report.md")
     ap.add_argument("--probe", action="store_true",
                     help="probe discovered endpoints with safe GETs (status/title)")
