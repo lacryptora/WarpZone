@@ -14,7 +14,11 @@ from urllib.parse import urlparse
 
 import requests
 
-UA = "Mozilla/5.0 (WarpZone; authorized security testing)"
+# A normal browser UA: some WAFs/CDNs serve a challenge or different content to
+# an unusual UA, which breaks JS mining. Override with --user-agent when a
+# program asks you to tag your traffic.
+UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 DEFAULT_TIMEOUT = 15
 
 STATIC_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".css", ".woff",
@@ -202,9 +206,9 @@ def run(cmd, stdin=None, timeout=300, cwd=None):
 
 # ------------------------------------------------------------------- http --
 
-def make_session(insecure=False, timeout=DEFAULT_TIMEOUT):
+def make_session(insecure=False, timeout=DEFAULT_TIMEOUT, ua=None):
     s = requests.Session()
-    s.headers.update({"User-Agent": UA, "Accept-Language": "en-US,en;q=0.9"})
+    s.headers.update({"User-Agent": ua or UA, "Accept-Language": "en-US,en;q=0.9"})
     s.timeout = timeout
     if insecure:
         s.verify = False

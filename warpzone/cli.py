@@ -78,6 +78,9 @@ def build_parser():
                     help="max endpoints fed to the XSS arena (default 25)")
     ap.add_argument("--dalfox", action="store_true", help="bridge to dalfox if installed")
     ap.add_argument("--insecure", action="store_true", help="disable TLS verification")
+    ap.add_argument("--user-agent", dest="user_agent",
+                    help="custom User-Agent (default is a normal browser; some programs "
+                         "ask you to tag your traffic, e.g. 'h1-username bugbounty')")
     ap.add_argument("--no-game", action="store_true", help="plain output, no Mario HUD")
     return ap
 
@@ -376,7 +379,8 @@ def main(argv=None):
                    (scope.includes[0] if scope.includes else None)))
         if not domain:
             sys.exit("[!] recon needs a target: -d domain (or -u URL / --targets).")
-        session = core.make_session(insecure=args.insecure, timeout=args.timeout)
+        session = core.make_session(insecure=args.insecure, timeout=args.timeout,
+                                    ua=args.user_agent)
         outdir = Path(args.out or f"warpzone_recon_{domain}_{ts}")
         outdir.mkdir(parents=True, exist_ok=True)
         (outdir / "scope_used.txt").write_text("\n".join(scope.lines()) + "\n", encoding="utf-8")
@@ -401,7 +405,8 @@ def main(argv=None):
         sys.exit("[!] give a target (-d / -u / --targets / --js-list) or "
                  "--confirm-from a saved run. See --help.")
 
-    session = core.make_session(insecure=args.insecure, timeout=args.timeout)
+    session = core.make_session(insecure=args.insecure, timeout=args.timeout,
+                                ua=args.user_agent)
     crawl, direct_js, scope = _resolve_targets(args)
     if not scope:
         sys.exit("[!] no scope could be worked out. Pass a -d domain, a -u URL, "
